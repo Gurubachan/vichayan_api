@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Authentication;
 use App\Http\Controllers\FriendController;
+use App\Http\Controllers\PhotoController;
 use App\Http\Controllers\PostController;
 use App\Http\Controllers\ProfileController;
 use Illuminate\Http\Request;
@@ -28,12 +29,18 @@ Route::get('/login',[Authentication::class,'index'])->name('login');
 
 Route::group(['middleware' => 'auth:api'], function (){
     Route::apiResource('post',PostController::class);
+    Route::post('post/comment', [PostController::class,'comment']);
+    Route::post('post/like', [PostController::class,'like']);
+    Route::post('post/liked', [PostController::class,'likeDetails']);
     Route::get('/friendSuggestion',[FriendController::class,'showUserList']);
-
-
+    Route::get('/friends',[FriendController::class,'myFriends']);
+    Route::post('/connect',[FriendController::class,'friendRequest']);
+    Route::get('/showRequest',[FriendController::class,'showFriendRequest']);
+    Route::post('/connection',[FriendController::class,'acceptFriendRequest']);
 });
 
 Route::group(['middleware'=>'auth:api','prefix'=>'myProfile'],function (){
     Route::post('name',[ProfileController::class,'createUserName']);
     Route::post('pic',[ProfileController::class,'setProfileImage']);
+    Route::post('upload',[PhotoController::class,'upload']);
 });
