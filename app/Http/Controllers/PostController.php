@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Comments;
+use App\Models\FriendList;
 use App\Models\Likes;
 use App\Models\PostContent;
 use App\Models\User;
@@ -25,28 +26,27 @@ class PostController extends Controller
     {
         try {
             $posts=Post::where('user_id','=',Auth::user()->id)
+                ->whereIn('user_id',FriendList::select('friends_id')
+                    ->where('my_id',Auth::user()->id)
+                    ->wheere('is_blocked',false)
+                    ->get()
+                    ->toarray()
+                )
                 ->where('postStatus','=',0)
+                ->where('isDeleted',false)
                 ->orderByRaw('id DESC')
                 ->offset(0)
-                ->limit(10)
+                ->limit(20)
                 ->get();
             foreach ($posts as $p){
                 if($p->isContaintAttached){
                     $postContent=PostContent::where('postId','=',$p->id)->get();
                     //$comment=Comments::where('post_id','=',$p->id)->get();
-
-
                 }else{
                     $postContent=null;
 
                 }
-                $comment=DB::table('tbl_comments')
-                    ->join('users','tbl_comments.user_id','=','users.id')
-                    ->select('tbl_comments.*',
-                        'users.firstname', 'users.lastname',
-                        'users.active_profile_image as profilepic')
-                    ->where('post_id','=',$p->id)
-                    ->get();
+
 
                 $amILike=Likes::
                     select('isActive')
@@ -69,7 +69,7 @@ class PostController extends Controller
                     'isContentAttached'=>$p->isContaintAttached,
                     'created_at'=>$p->created_at,
                     'postContent'=>$postContent,
-                    'comment'=>$comment
+                    'comment'=>$this->getComments($p->id)
                 );
             }
             if($posts->count()>0){
@@ -147,24 +147,71 @@ class PostController extends Controller
     /**
      * Display the specified resource.
      *
-     * @param  int  $id
+     * @param  string  $id
      * @return \Illuminate\Http\Response
      */
     public function show($id)
     {
-        //
+        try {
+            if (isset($id)){
+                $comments=$this->getComments(base64_decode($id));
+                if(count($comments)>0){
+                    return response()->json(['response'=>true,
+                        'message'=>count($comments).' comment fetched',
+                        'data'=>$comments
+                        ]);
+                }else{
+                    return response()->json(['response'=>false,
+                        'message'=>'No comment found',
+                    ]);
+                }
+            }else{
+                return response()->json(['response'=>false,'message'=>'Invalid post id.']);
+            }
+        }catch (\Exception $exception){
+            return response()->json(['response'=>false,'message'=>$exception->getMessage()]);
+        }
     }
 
     /**
      * Update the specified resource in storage.
      *
      * @param \Illuminate\Http\Request $request
-     * @param int $id
+     * @param string $id
      * @return void
      */
-    public function update(Request $request, int $id)
+    public function update(Request $request, string $id)
     {
-        //
+        try {
+            $inputs=json_decode($request->getContent(),true);
+            $id=base64_decode($id);
+            $validator=Validator::make($inputs,[
+                'message'=>'required|string|min:1',
+                'isPublished'=>'required|integer|min:0|max:1',
+                'privacy'=>'required|integer|min:0|max:4',
+                'postStatus'=>'required|integer|min:0|max:1'
+            ]);
+
+            if($validator->fails()){
+                return response()->json(['response'=>false,'message'=>$validator->errors()], 401);
+            }
+            $checkPost=Post::where('id',$id)
+                ->where('user_id',Auth::user()->id)
+                ->take(1)
+                ->get();
+            if($checkPost->count()==1){
+                $post=Post::find($id);
+                $post->message=strip_tags($inputs['message']);
+                $post->postStatus=$inputs['postStatus'];
+                $post->privacy=$inputs['privacy'];
+                $post->isEdited=true;
+                $post->updated_at=date('Y-m-d H:s:i');
+                $post->save();
+            }
+            return response()->json(['response'=>true,'message'=>'Post updated.','data'=>$post],200);
+        }catch (\Exception $exception){
+            return response()->json(['response'=>false,'message'=>$exception->getMessage()]);
+        }
     }
 
     /**
@@ -173,9 +220,22 @@ class PostController extends Controller
      * @param int $id
      * @return void
      */
-    public function destroy(int $id)
+    public function destroy(string $id)
     {
-        //
+        try {
+            if(isset($id) && isset(auth('api')->user()->id)){
+                $id=base64_decode($id);
+                $post=Post::find($id);
+                $post->isDeleted=true;
+                $post->deleted_at=date('Y-m-d H:s:i');
+                $post->save();
+                return response()->json(['response'=>true,'message'=>'Post deleted']);
+            }else{
+                return response()->json(['response'=>false,'message'=>'Invalid post id']);
+            }
+        }catch (\Exception $exception){
+            return response()->json(['response'=>false,'message'=>$exception->getMessage()]);
+        }
     }
 
     public function comment(Request $request){
@@ -295,5 +355,16 @@ class PostController extends Controller
         }catch (\Exception $exception){
             return response()->json(['response'=>false,'message'=>$exception->getMessage()]);
         }
+    }
+
+    public function getComments(int $id){
+        return $comment=DB::table('tbl_comments')
+            ->join('users','tbl_comments.user_id','=','users.id')
+            ->select('tbl_comments.*',
+                'users.firstname', 'users.lastname',
+                'users.active_profile_image as profilepic')
+            ->where('post_id','=',$id)
+            ->get();
+
     }
 }
