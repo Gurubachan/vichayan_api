@@ -32,6 +32,8 @@ Route::group(['middleware' => 'auth:api'], function (){
     Route::post('post/comment', [PostController::class,'comment']);
     Route::post('post/like', [PostController::class,'like']);
     Route::post('post/liked', [PostController::class,'likeDetails']);
+    Route::post('post/save', [PostController::class,'SavePost']);
+    Route::get('getPost', [PostController::class,'getSavedPost']);
     Route::get('/friendSuggestion',[FriendController::class,'showUserList']);
     Route::get('/friends',[FriendController::class,'myFriends']);
     Route::post('/connect',[FriendController::class,'friendRequest']);

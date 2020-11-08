@@ -6,6 +6,7 @@ use App\Models\Comments;
 use App\Models\FriendList;
 use App\Models\Likes;
 use App\Models\PostContent;
+use App\Models\SavedPost;
 use App\Models\User;
 use Illuminate\Http\Request;
 use App\Models\Post;
@@ -25,61 +26,20 @@ class PostController extends Controller
     public function index()
     {
         try {
-            $posts=Post::where('user_id','=',Auth::user()->id)
-                ->whereIn('user_id',FriendList::select('friends_id')
-                    ->where('my_id',Auth::user()->id)
-                    ->wheere('is_blocked',false)
-                    ->get()
-                    ->toarray()
-                )
+            $friendlist=FriendList::select('friends_id')
+                ->where('my_id','=',Auth::user()->id)
+                ->where('is_blocked',false)
+                ->get()
+                ->toarray();
+            array_push($friendlist, Auth::user()->id);
+            $posts=Post::
+                whereIn('user_id',$friendlist)
                 ->where('postStatus','=',0)
                 ->where('isDeleted',false)
                 ->orderByRaw('id DESC')
-                ->offset(0)
-                ->limit(20)
-                ->get();
-            foreach ($posts as $p){
-                if($p->isContaintAttached){
-                    $postContent=PostContent::where('postId','=',$p->id)->get();
-                    //$comment=Comments::where('post_id','=',$p->id)->get();
-                }else{
-                    $postContent=null;
-
-                }
-
-
-                $amILike=Likes::
-                    select('isActive')
-                    ->where('user_id',Auth::user()->id)
-                    ->where('post_id',$p->id)
-                    ->get();
-               $this->data[]=array(
-                    'postId'=>base64_encode($p->id),
-                    'message'=>$p->message,
-                    'userId'=>base64_encode($p->user_id),
-                    'username'=>$p->users->username,
-                    'name'=>$p->users->firstname.' '.$p->users->lastname,
-                    'shortName'=>strtoupper($p->users->firstname[0].''.$p->users->lastname[0]),
-                    'profilePic'=>$p->users->active_profile_image,
-                    'likeCount'=>$p->likeCount,
-                    'isLiked'=>$amILike,
-                    'commentCount'=>$p->commentCount,
-                    'shareCount'=>$p->shareCount,
-                    'privacy'=>config('constants.privacy')[$p->privacy],
-                    'isContentAttached'=>$p->isContaintAttached,
-                    'created_at'=>$p->created_at,
-                    'postContent'=>$postContent,
-                    'comment'=>$this->getComments($p->id)
-                );
-            }
-            if($posts->count()>0){
-                return response()->json(['response'=>true,
-                    'message'=>$posts->count().' post available till now',
-                    'data'=>$this->data]);
-            }else{
-                return response()->json(['response'=>false,
-                    'message'=>'No post found'],200);
-            }
+                ->simplePaginate();
+            $response=$this->postCreator($posts);
+            return response()->json($response);
         }catch (\Exception $exception){
             return response()->json(['response'=>false,'message'=>$exception->getMessage()]);
         }
@@ -356,7 +316,58 @@ class PostController extends Controller
             return response()->json(['response'=>false,'message'=>$exception->getMessage()]);
         }
     }
+    public function SavePost(Request $request){
+        try {
+            $inputs=json_decode($request->getContent(),true);
+            if(isset(auth('api')->user()->id)){
+                $validator=Validator::make($inputs,[
+                    'post_id'=>'required|string'
+                ]);
+                if($validator->fails()){
+                    return response()->json(['response' => false, 'message' => $validator->errors()], 401);
+                }
+                ;
+                $savePost= new SavedPost();
+                $savePost->post_id=base64_decode($inputs['post_id']);
+                $savePost->user_id=Auth::user()->id;
+                $savePost->save();
+                return response()->json(['response'=>true,'message'=>'Post Saved Successfully'],200);
+            }else{
+                return redirect('login');
+            }
 
+        }catch (\Exception $exception){
+            return response()->json(['response'=>false,'message'=>$exception->getMessage()]);
+        }
+    }
+    public function getSavedPost(){
+        try {
+            if(isset(auth('api')->user()->id)){
+
+                $savedPost=SavedPost::select('post_id')->where('user_id',Auth::user()->id)->get()->toArray();
+                //return response()->json($savedPost);
+               if(count($savedPost)>0){
+                    $posts=Post::
+                    whereIn('id',$savedPost)
+                        ->where('postStatus','=',0)
+                        ->where('isDeleted',false)
+                        ->orderByRaw('id DESC')
+                        ->simplePaginate();
+                    $response=$this->postCreator($posts);
+                    return response()->json($response);
+                }else{
+                    return response()->json(['response'=>false,'message'=>'Not getting any data']);
+                }
+
+
+            }else{
+                return redirect('login');
+            }
+
+        }catch (\Exception $exception){
+            return response()->json(['response'=>false,'message'=>$exception->getMessage()]);
+        }
+    }
     public function getComments(int $id){
         return $comment=DB::table('tbl_comments')
             ->join('users','tbl_comments.user_id','=','users.id')
@@ -366,5 +377,49 @@ class PostController extends Controller
             ->where('post_id','=',$id)
             ->get();
 
+    }
+
+    public function postCreator($posts){
+        foreach ($posts as $p){
+            if($p->isContaintAttached){
+                $postContent=PostContent::where('postId','=',$p->id)->get();
+                //$comment=Comments::where('post_id','=',$p->id)->get();
+            }else{
+                $postContent=null;
+            }
+            $amILike=Likes::
+            select('isActive')
+                ->where('user_id',Auth::user()->id)
+                ->where('post_id',$p->id)
+                ->get();
+            $this->data[]=array(
+                'postId'=>base64_encode($p->id),
+                'message'=>$p->message,
+                'userId'=>base64_encode($p->user_id),
+                'username'=>$p->users->username,
+                'name'=>$p->users->firstname.' '.$p->users->lastname,
+                'shortName'=>strtoupper($p->users->firstname[0].''.$p->users->lastname[0]),
+                'profilePic'=>$p->users->active_profile_image,
+                'likeCount'=>$p->likeCount,
+                'isLiked'=>$amILike,
+                'commentCount'=>$p->commentCount,
+                'shareCount'=>$p->shareCount,
+                'privacy'=>config('constants.privacy')[$p->privacy],
+                'isContentAttached'=>$p->isContaintAttached,
+                'created_at'=>$p->created_at,
+                'postContent'=>$postContent,
+                'comment'=>$this->getComments($p->id)
+            );
+        }
+        if($posts->count()>0){
+            $links=$posts->toArray();
+            unset($links['data']);
+            return ['response'=>true,
+                'message'=>$posts->count().' post available till now',
+                'data'=>$this->data,'nextApiCall'=>$links];
+        }else{
+            return ['response'=>false,
+                'message'=>'No post found'];
+        }
     }
 }

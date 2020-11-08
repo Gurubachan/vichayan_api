@@ -74,6 +74,7 @@ class Authentication extends Controller
             $inputs['dob']=date("Y-m-d", strtotime($inputs['dob']));
             $user=User::create($inputs);
             $accessToken=$user->createToken('authToken')->accessToken;
+
             return response()->json(['user'=>$user,'token'=>$accessToken],200);
 
         }catch (\Exception $exception){
